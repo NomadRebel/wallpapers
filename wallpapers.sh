@@ -1,16 +1,9 @@
 #!/bin/bash
-#
-# watch_wallpapers.sh
-# Watches a folder for new wallpaper images and automatically:
-#   1. Moves the image into your site's content/ folder
-#   2. Appends a matching <div class="content">...</div> block to index.html
-#
-# Requires: inotify-tools  (install with: sudo apt install inotify-tools)
 
 set -euo pipefail
 
-# ─── CONFIG — edit these three paths for your setup ─────────────────────────
-WATCH_DIR="$HOME/wallpaperss/wallpapers/content"                          # folder you drop new wallpapers into
+# CONFIG 
+WATCH_DIR="$HOME/wallpaperss/wallpapers/content"          # folder to drop new wallpapers into
 CONTENT_DIR="$HOME/wallpaperss/wallpapers/content"        # where images live on your site
 HTML_FILE="$HOME/wallpaperss/wallpapers/index.html"       # the HTML file to update
 # ──────────────────────────────────────────────────────────────────────────
@@ -32,10 +25,7 @@ add_wallpaper() {
         return
     fi
 
-    # Some browsers/downloaders fire multiple events (close_write + moved_to,
-    # or several close_write's while flushing) for what is really one download.
-    # If we've already handled this exact filename in this run, skip it.
-    if [[ -n "${RECENTLY_PROCESSED[$filename]:-}" ]]; then
+        if [[ -n "${RECENTLY_PROCESSED[$filename]:-}" ]]; then
         return
     fi
 
