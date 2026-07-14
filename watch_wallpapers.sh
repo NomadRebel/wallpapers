@@ -1,15 +1,34 @@
 #!/bin/bash
+#
+# watch_wallpapers.sh
+# Watches a folder for new wallpaper images and automatically:
+#   1. Moves the image into your site's content/ folder
+#   2. Appends a matching <div class="content">...</div> block to index.html
+#
+# Requires: inotify-tools  (install with: sudo apt install inotify-tools)
 
 set -euo pipefail
 
-# CONFIG 
-WATCH_DIR="$HOME/wallpaperss/wallpapers/content"          # folder to drop new wallpapers into
-CONTENT_DIR="$HOME/wallpaperss/wallpapers/content"        # where images live on your site
+# ─── CONFIG — edit these paths for your setup ───────────────────────────────
+WATCH_DIR="$HOME/wallpaperss/wallpapers/content"                        # folder you drop new wallpapers into
+CONTENT_DIR="$HOME/wallpaperss/wallpapers/content"        # full-res images live here
+THUMB_DIR="$HOME/wallpaperss/wallpapers/thumbnails"       # compressed thumbnails go here
 HTML_FILE="$HOME/wallpaperss/wallpapers/index.html"       # the HTML file to update
+
+THUMB_WIDTH=400        # thumbnail width in pixels (height auto-scales)
+THUMB_QUALITY=75       # JPEG/WebP quality, 0-100 (lower = smaller file)
 # ──────────────────────────────────────────────────────────────────────────
 
 MARKER="<!-- WALLPAPER_INSERT_POINT -->"
 VALID_EXT_REGEX='\.(jpe?g|png|gif|webp)$'
+
+# Make sure ImageMagick is installed
+if ! command -v convert &>/dev/null; then
+    echo "ERROR: ImageMagick not found. Install it with: sudo apt install imagemagick"
+    exit 1
+fi
+
+mkdir -p "$THUMB_DIR"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
@@ -25,7 +44,10 @@ add_wallpaper() {
         return
     fi
 
-        if [[ -n "${RECENTLY_PROCESSED[$filename]:-}" ]]; then
+    # Some browsers/downloaders fire multiple events (close_write + moved_to,
+    # or several close_write's while flushing) for what is really one download.
+    # If we've already handled this exact filename in this run, skip it.
+    if [[ -n "${RECENTLY_PROCESSED[$filename]:-}" ]]; then
         return
     fi
 
@@ -58,7 +80,7 @@ add_wallpaper() {
         local base="${filename%.*}" ext="${filename##*.}"
         local n=1
         while [[ -e "$CONTENT_DIR/${base}-${n}.${ext}" ]]; do
-            ((n++))
+            n=$((n + 1))
         done
         filename="${base}-${n}.${ext}"
         dest="$CONTENT_DIR/$filename"
@@ -66,6 +88,15 @@ add_wallpaper() {
 
     mv "$src_path" "$dest"
     log "Moved '$filename' -> $CONTENT_DIR/"
+
+    # Generate a compressed thumbnail (resized to THUMB_WIDTH, quality THUMB_QUALITY)
+    local thumb_path="$THUMB_DIR/$filename"
+    if convert "$dest" -resize "${THUMB_WIDTH}x" -strip -quality "$THUMB_QUALITY" "$thumb_path" 2>/tmp/thumb_err.log; then
+        log "Created thumbnail -> $THUMB_DIR/$filename"
+    else
+        log "WARNING: thumbnail generation failed for $filename ($(cat /tmp/thumb_err.log)); falling back to full image in grid"
+        thumb_path=""   # fall back to full-res image below if thumbnail failed
+    fi
 
     # Work out the next wallpaperN number by scanning the HTML file
     local last_num next_num
@@ -76,12 +107,18 @@ add_wallpaper() {
         next_num=$((last_num + 1))
     fi
 
+    # img src uses the thumbnail (fast-loading grid); href/click still opens the full-res original
+    local img_src="content/${filename}"
+    if [[ -n "$thumb_path" ]]; then
+        img_src="thumbnails/${filename}"
+    fi
+
     # Build the new block (matches your existing indentation style)
     local block
     block=$(cat <<EOF
             <div class="content">
                 <a href="content/${filename}" target="_blank">
-                    <img src="content/${filename}" alt="wallpaper${next_num}">
+                    <img src="${img_src}" alt="wallpaper${next_num}">
                 </a>
             </div>
 EOF
